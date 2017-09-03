@@ -1,19 +1,20 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
+import sys
+import json
+import time
+import atexit
+import random
+import signal
+import logging
+import datetime
+import itertools
+
+import requests
 
 from userinfo import UserInfo
-import requests
-import random
-import time
-import datetime
-import logging
-import json
-import atexit
-import signal
-import itertools
-import sys
-
 from unfollow_protocol import unfollow_protocol
+
 
 class InstaBot:
     """
@@ -65,7 +66,7 @@ class InstaBot:
     follow_counter = 0
     unfollow_counter = 0
     comments_counter = 0
-    current_user ='hajka'
+    current_user = 'hajka'
     current_index = 0
     current_id = 'abcds'
     # List of user_id, that bot follow
@@ -76,7 +77,7 @@ class InstaBot:
     unwanted_username_list = []
     is_checked = False
     is_selebgram = False
-    is_fake_account  = False
+    is_fake_account = False
     is_active_user = False
     is_following = False
     is_follower = False
@@ -87,7 +88,6 @@ class InstaBot:
 
     self_following = 0
     self_follower = 0
-
 
     # Log setting.
     log_file_path = ''
@@ -103,10 +103,12 @@ class InstaBot:
     # For new_auto_mod
     next_iteration = {"Like": 0, "Follow": 0, "Unfollow": 0, "Comments": 0}
 
-    def __init__(self, login, password,
-                 like_per_day=1000,
+    def __init__(self,
+                 login,
+                 password,
+                 like_per_day=100000,
                  media_max_like=50,
-                 media_min_like=0,
+                 media_min_like=10,
                  follow_per_day=0,
                  follow_time=5 * 60 * 60,
                  unfollow_per_day=0,
@@ -119,7 +121,7 @@ class InstaBot:
                  proxy="",
                  user_blacklist={},
                  tag_blacklist=[],
-                 unwanted_username_list=[], 
+                 unwanted_username_list=[],
                  unfollow_whitelist=[]):
 
         self.bot_start = datetime.datetime.now()
@@ -166,10 +168,10 @@ class InstaBot:
         # if you need proxy make something like this:
         # self.s.proxies = {"https" : "http://proxyip:proxyport"}
         # by @ageorgios
-        if proxy!="":
+        if proxy != "":
             proxies = {
-              'http': 'http://'+proxy,
-              'https': 'http://'+proxy,
+                'http': 'http://' + proxy,
+                'https': 'http://' + proxy,
             }
             self.s.proxies.update(proxies)
         # convert login to lower
@@ -192,13 +194,14 @@ class InstaBot:
     def populate_user_blacklist(self):
         for user in self.user_blacklist:
 
-            user_id_url= self.url_user_detail % (user)
+            user_id_url = self.url_user_detail % (user)
             info = self.s.get(user_id_url)
             all_data = json.loads(info.text)
             id_user = all_data['user']['media']['nodes'][0]['owner']['id']
             #Update the user_name with the user_id
-            self.user_blacklist[user]=id_user
-            log_string = "Blacklisted user %s added with ID: %s" % (user, id_user)
+            self.user_blacklist[user] = id_user
+            log_string = "Blacklisted user %s added with ID: %s" % (user,
+                                                                    id_user)
             self.write_log(log_string)
             time.sleep(5 * random.random())
 
@@ -208,26 +211,36 @@ class InstaBot:
     def login(self):
         log_string = 'Trying to login as %s...\n' % (self.user_login)
         self.write_log(log_string)
-        self.s.cookies.update({'sessionid': '', 'mid': '', 'ig_pr': '1',
-                               'ig_vw': '1920', 'csrftoken': '',
-                               's_network': '', 'ds_user_id': ''})
-        self.login_post = {'username': self.user_login,
-                           'password': self.user_password}
-        self.s.headers.update({'Accept-Encoding': 'gzip, deflate',
-                               'Accept-Language': self.accept_language,
-                               'Connection': 'keep-alive',
-                               'Content-Length': '0',
-                               'Host': 'www.instagram.com',
-                               'Origin': 'https://www.instagram.com',
-                               'Referer': 'https://www.instagram.com/',
-                               'User-Agent': self.user_agent,
-                               'X-Instagram-AJAX': '1',
-                               'X-Requested-With': 'XMLHttpRequest'})
+        self.s.cookies.update({
+            'sessionid': '',
+            'mid': '',
+            'ig_pr': '1',
+            'ig_vw': '1920',
+            'csrftoken': '',
+            's_network': '',
+            'ds_user_id': ''
+        })
+        self.login_post = {
+            'username': self.user_login,
+            'password': self.user_password
+        }
+        self.s.headers.update({
+            'Accept-Encoding': 'gzip, deflate',
+            'Accept-Language': self.accept_language,
+            'Connection': 'keep-alive',
+            'Content-Length': '0',
+            'Host': 'www.instagram.com',
+            'Origin': 'https://www.instagram.com',
+            'Referer': 'https://www.instagram.com/',
+            'User-Agent': self.user_agent,
+            'X-Instagram-AJAX': '1',
+            'X-Requested-With': 'XMLHttpRequest'
+        })
         r = self.s.get(self.url)
         self.s.headers.update({'X-CSRFToken': r.cookies['csrftoken']})
         time.sleep(5 * random.random())
-        login = self.s.post(self.url_login, data=self.login_post,
-                            allow_redirects=True)
+        login = self.s.post(
+            self.url_login, data=self.login_post, allow_redirects=True)
         self.s.headers.update({'X-CSRFToken': login.cookies['csrftoken']})
         self.csrftoken = login.cookies['csrftoken']
         time.sleep(5 * random.random())
@@ -272,9 +285,10 @@ class InstaBot:
                 log_string = "Trying to unfollow: %s" % (f[0])
                 self.write_log(log_string)
                 self.unfollow_on_cleanup(f[0])
-                sleeptime = random.randint(self.unfollow_break_min, self.unfollow_break_max)
+                sleeptime = random.randint(self.unfollow_break_min,
+                                           self.unfollow_break_max)
                 log_string = "Pausing for %i seconds... %i of %i" % (
-                sleeptime, self.unfollow_counter, self.follow_counter)
+                    sleeptime, self.unfollow_counter, self.follow_counter)
                 self.write_log(log_string)
                 time.sleep(sleeptime)
                 self.bot_follow_list.remove(f)
@@ -302,7 +316,8 @@ class InstaBot:
                     finder_text_end = ';</script>'
 
                     all_data_start = text.find(finder_text_start)
-                    all_data_end = text.find(finder_text_end, all_data_start + 1)
+                    all_data_end = text.find(finder_text_end,
+                                             all_data_start + 1)
                     json_str = text[(all_data_start + finder_text_start_len + 1) \
                         : all_data_end]
                     all_data = json.loads(json_str)
@@ -326,34 +341,60 @@ class InstaBot:
                     if media_size > 0 or media_size < 0:
                         media_size -= 1
                         l_c = self.media_by_tag[i]['likes']['count']
-                        if ((l_c <= self.media_max_like and l_c >= self.media_min_like)
-                            or (self.media_max_like == 0 and l_c >= self.media_min_like)
-                            or (self.media_min_like == 0 and l_c <= self.media_max_like)
-                            or (self.media_min_like == 0 and self.media_max_like == 0)):
-                            for blacklisted_user_name, blacklisted_user_id in self.user_blacklist.items():
-                                if (self.media_by_tag[i]['owner']['id'] == blacklisted_user_id):
-                                    self.write_log("Not liking media owned by blacklisted user: " + blacklisted_user_name)
+                        if ((l_c <= self.media_max_like and
+                             l_c >= self.media_min_like) or
+                            (self.media_max_like == 0 and
+                             l_c >= self.media_min_like) or
+                            (self.media_min_like == 0 and
+                             l_c <= self.media_max_like) or
+                            (self.media_min_like == 0 and
+                             self.media_max_like == 0)):
+                            for blacklisted_user_name, blacklisted_user_id in self.user_blacklist.items(
+                            ):
+                                if (self.media_by_tag[i]['owner']['id'] ==
+                                        blacklisted_user_id):
+                                    self.write_log(
+                                        "Not liking media owned by blacklisted user: "
+                                        + blacklisted_user_name)
                                     return False
-                            if (self.media_by_tag[i]['owner']['id'] == self.user_id):
-                                self.write_log("Keep calm - It's your own media ;)")
+                            if (self.media_by_tag[i]['owner']['id'] ==
+                                    self.user_id):
+                                self.write_log(
+                                    "Keep calm - It's your own media ;)")
                                 return False
 
                             try:
-                                caption = self.media_by_tag[i]['caption'].encode('ascii',errors='ignore')
+                                caption = self.media_by_tag[i][
+                                    'caption'].encode(
+                                        'ascii', errors='ignore')
                                 tag_blacklist = set(self.tag_blacklist)
                                 if sys.version_info[0] == 3:
-                                    tags = {str.lower((tag.decode('ASCII')).strip('#')) for tag in caption.split() if
-                                            (tag.decode('ASCII')).startswith("#")}
+                                    tags = {
+                                        str.lower(
+                                            (tag.decode('ASCII')).strip('#'))
+                                        for tag in caption.split()
+                                        if (tag.decode('ASCII')
+                                            ).startswith("#")
+                                    }
                                 else:
-                                    tags = {unicode.lower((tag.decode('ASCII')).strip('#')) for tag in caption.split() if
-                                            (tag.decode('ASCII')).startswith("#")}
+                                    tags = {
+                                        unicode.lower(
+                                            (tag.decode('ASCII')).strip('#'))
+                                        for tag in caption.split()
+                                        if (tag.decode('ASCII')
+                                            ).startswith("#")
+                                    }
 
                                 if tags.intersection(tag_blacklist):
-                                        matching_tags = ', '.join(tags.intersection(tag_blacklist))
-                                        self.write_log("Not liking media with blacklisted tag(s): " + matching_tags)
-                                        return False
+                                    matching_tags = ', '.join(
+                                        tags.intersection(tag_blacklist))
+                                    self.write_log(
+                                        "Not liking media with blacklisted tag(s): "
+                                        + matching_tags)
+                                    return False
                             except:
-                                self.write_log("Couldn't find caption - not liking")
+                                self.write_log(
+                                    "Couldn't find caption - not liking")
                                 return False
 
                             log_string = "Trying to like media: %s" % \
@@ -390,7 +431,8 @@ class InstaBot:
                                 i += 1
                                 if delay:
                                     time.sleep(self.like_delay * 0.9 +
-                                               self.like_delay * 0.2 * random.random())
+                                               self.like_delay * 0.2 *
+                                               random.random())
                                 else:
                                     return True
                             else:
@@ -434,7 +476,8 @@ class InstaBot:
                 comment = self.s.post(url_comment, data=comment_post)
                 if comment.status_code == 200:
                     self.comments_counter += 1
-                    log_string = 'Write: "%s". #%i.' % (comment_text, self.comments_counter)
+                    log_string = 'Write: "%s". #%i.' % (comment_text,
+                                                        self.comments_counter)
                     self.write_log(log_string)
                 return comment
             except:
@@ -449,7 +492,8 @@ class InstaBot:
                 follow = self.s.post(url_follow)
                 if follow.status_code == 200:
                     self.follow_counter += 1
-                    log_string = "Followed: %s #%i." % (user_id, self.follow_counter)
+                    log_string = "Followed: %s #%i." % (user_id,
+                                                        self.follow_counter)
                     self.write_log(log_string)
                 return follow
             except:
@@ -464,7 +508,8 @@ class InstaBot:
                 unfollow = self.s.post(url_unfollow)
                 if unfollow.status_code == 200:
                     self.unfollow_counter += 1
-                    log_string = "Unfollow: %s #%i." % (user_id, self.unfollow_counter)
+                    log_string = "Unfollow: %s #%i." % (user_id,
+                                                        self.unfollow_counter)
                     self.write_log(log_string)
                 return unfollow
             except:
@@ -479,7 +524,8 @@ class InstaBot:
                 unfollow = self.s.post(url_unfollow)
                 if unfollow.status_code == 200:
                     self.unfollow_counter += 1
-                    log_string = "Unfollow: %s #%i of %i." % (user_id, self.unfollow_counter, self.follow_counter)
+                    log_string = "Unfollow: %s #%i of %i." % (
+                        user_id, self.unfollow_counter, self.follow_counter)
                     self.write_log(log_string)
                 else:
                     log_string = "Slow Down - Pausing for 5 minutes so we don't get banned!"
@@ -488,7 +534,9 @@ class InstaBot:
                     unfollow = self.s.post(url_unfollow)
                     if unfollow.status_code == 200:
                         self.unfollow_counter += 1
-                        log_string = "Unfollow: %s #%i of %i." % (user_id, self.unfollow_counter, self.follow_counter)
+                        log_string = "Unfollow: %s #%i of %i." % (
+                            user_id, self.unfollow_counter,
+                            self.follow_counter)
                         self.write_log(log_string)
                     else:
                         log_string = "Still no good :( Skipping and pausing for another 5 minutes"
@@ -516,7 +564,8 @@ class InstaBot:
             if len(self.media_by_tag) == 0:
                 self.get_media_id_by_tag(random.choice(self.tag_list))
                 self.this_tag_like_count = 0
-                self.max_tag_like_count = random.randint(1, self.max_like_for_one_tag)
+                self.max_tag_like_count = random.randint(
+                    1, self.max_like_for_one_tag)
             # ------------------- Like -------------------
             self.new_auto_mod_like()
             # ------------------- Follow -------------------
@@ -550,19 +599,20 @@ class InstaBot:
             if self.media_by_tag[0]["owner"]["id"] == self.user_id:
                 self.write_log("Keep calm - It's your own profile ;)")
                 return
-            log_string = "Trying to follow: %s" % (self.media_by_tag[0]["owner"]["id"])
+            log_string = "Trying to follow: %s" % (
+                self.media_by_tag[0]["owner"]["id"])
             self.write_log(log_string)
 
             if self.follow(self.media_by_tag[0]["owner"]["id"]) != False:
-                self.bot_follow_list.append([self.media_by_tag[0]["owner"]["id"],
-                                             time.time()])
+                self.bot_follow_list.append(
+                    [self.media_by_tag[0]["owner"]["id"], time.time()])
                 self.next_iteration["Follow"] = time.time() + \
                                                 self.add_time(self.follow_delay)
 
     def new_auto_mod_unfollow(self):
         if time.time() > self.next_iteration["Unfollow"] and \
                         self.unfollow_per_day != 0 and len(self.bot_follow_list) > 0:
-            if (self.bot_mode == 0) :
+            if (self.bot_mode == 0):
                 for f in self.bot_follow_list:
                     if time.time() > (f[1] + self.follow_time):
                         log_string = "Trying to unfollow #%i: "
@@ -571,7 +621,7 @@ class InstaBot:
                         self.bot_follow_list.remove(f)
                         self.next_iteration["Unfollow"] = time.time() + \
                                                           self.add_time(self.unfollow_delay)
-            if (self.bot_mode == 1) :
+            if (self.bot_mode == 1):
                 unfollow_protocol(self)
 
     def new_auto_mod_comments(self):
@@ -590,19 +640,17 @@ class InstaBot:
         return time * 0.9 + time * 0.2 * random.random()
 
     def generate_comment(self):
-        c_list = list(itertools.product(
-            ["this", "the", "your"],
-            ["photo", "picture", "pic", "shot", "snapshot"],
-            ["is", "looks", "feels", "is really"],
-            ["great", "super", "good", "very good",
-             "good", "wow", "WOW", "cool",
-             "GREAT", "magnificent", "magical", "very cool",
-             "stylish", "so stylish", "beautiful",
-             "so beautiful", "so stylish", "so professional",
-             "lovely", "so lovely", "very lovely",
-             "glorious", "so glorious", "very glorious",
-             "adorable", "excellent", "amazing"],
-            [".", "..", "...", "!", "!!", "!!!"]))
+        c_list = list(
+            itertools.product(["this", "the", "your"], [
+                "photo", "picture", "pic", "shot", "snapshot"
+            ], ["is", "looks", "feels", "is really"], [
+                "great", "super", "good", "very good", "good", "wow", "WOW",
+                "cool", "GREAT", "magnificent", "magical", "very cool",
+                "stylish", "so stylish", "beautiful", "so beautiful",
+                "so stylish", "so professional", "lovely", "so lovely",
+                "very lovely", "glorious", "so glorious", "very glorious",
+                "adorable", "excellent", "amazing"
+            ], [".", "..", "...", "!", "!!", "!!!"]))
 
         repl = [("  ", " "), (" .", "."), (" !", "!")]
         res = " ".join(random.choice(c_list))
@@ -615,10 +663,10 @@ class InstaBot:
         check_comment = self.s.get(url_check)
         all_data = json.loads(check_comment.text)
         if all_data['media']['owner']['id'] == self.user_id:
-                self.write_log("Keep calm - It's your own media ;)")
-                # Del media to don't loop on it
-                del self.media_by_tag[0]
-                return True
+            self.write_log("Keep calm - It's your own media ;)")
+            # Del media to don't loop on it
+            del self.media_by_tag[0]
+            return True
         comment_list = list(all_data['media']['comments']['nodes'])
         for d in comment_list:
             if d['user']['id'] == self.user_id:
@@ -636,68 +684,80 @@ class InstaBot:
         self.media_on_feed = []
         if len(self.media_on_feed) < 1:
             self.get_media_id_recent_feed()
-        if len(self.media_on_feed) != 0 :
-            chooser = random.randint(0,len(self.media_on_feed)-1)
-            current_id=self.media_on_feed[chooser]['node']["owner"]["id"]
-            current_user=self.media_on_feed[chooser]['node']["owner"]["username"]
-            
+        if len(self.media_on_feed) != 0:
+            chooser = random.randint(0, len(self.media_on_feed) - 1)
+            current_id = self.media_on_feed[chooser]['node']["owner"]["id"]
+            current_user = self.media_on_feed[chooser]['node']["owner"][
+                "username"]
+
             while checking:
                 for wluser in self.unfollow_whitelist:
                     if wluser == current_user:
-                        chooser = random.randint(0,len(self.media_on_feed)-1)
-                        current_id=self.media_on_feed[chooser]['node']["owner"]["id"]
-                        current_user=self.media_on_feed[chooser]['node']["owner"]["username"]
-                        log_string = ("found whitelist user, starting search again")
+                        chooser = random.randint(0,
+                                                 len(self.media_on_feed) - 1)
+                        current_id = self.media_on_feed[chooser]['node'][
+                            "owner"]["id"]
+                        current_user = self.media_on_feed[chooser]['node'][
+                            "owner"]["username"]
+                        log_string = (
+                            "found whitelist user, starting search again")
                         self.write_log(log_string)
-                        break;
+                        break
                 else:
                     checking = False
-                    
+
         if (self.login_status):
             now_time = datetime.datetime.now()
-            log_string = "%s : Get user info \n%s"%(self.user_login,now_time.strftime("%d.%m.%Y %H:%M"))
+            log_string = "%s : Get user info \n%s" % (
+                self.user_login, now_time.strftime("%d.%m.%Y %H:%M"))
             self.write_log(log_string)
             if self.login_status == 1:
-                url_tag = 'https://www.instagram.com/%s/'%(current_user)
+                url_tag = 'https://www.instagram.com/%s/' % (current_user)
                 try:
                     r = self.s.get(url_tag)
                     text = r.text
                     finder_text_start = ('<script type="text/javascript">'
                                          'window._sharedData = ')
-                    finder_text_start_len = len(finder_text_start)-1
+                    finder_text_start_len = len(finder_text_start) - 1
                     finder_text_end = ';</script>'
 
                     all_data_start = text.find(finder_text_start)
-                    all_data_end = text.find(finder_text_end, all_data_start + 1)
+                    all_data_end = text.find(finder_text_end,
+                                             all_data_start + 1)
                     json_str = text[(all_data_start + finder_text_start_len + 1) \
                                    : all_data_end]
                     all_data = json.loads(json_str)
 
-                    self.user_info = list(all_data['entry_data']['ProfilePage'])
-                    i=0
-                    log_string="Checking user info.."
+                    self.user_info = list(
+                        all_data['entry_data']['ProfilePage'])
+                    i = 0
+                    log_string = "Checking user info.."
                     self.write_log(log_string)
 
-
-                    while i<1:
+                    while i < 1:
                         follows = self.user_info[0]['user']['follows']['count']
-                        follower = self.user_info[0]['user']['followed_by']['count']
+                        follower = self.user_info[0]['user']['followed_by'][
+                            'count']
                         media = self.user_info[0]['user']['media']['count']
-                        follow_viewer = self.user_info[0]['user']['follows_viewer']
-                        followed_by_viewer = self.user_info[0]['user']['followed_by_viewer']
-                        requested_by_viewer = self.user_info[0]['user']['requested_by_viewer']
-                        has_requested_viewer = self.user_info[0]['user']['has_requested_viewer']
+                        follow_viewer = self.user_info[0]['user'][
+                            'follows_viewer']
+                        followed_by_viewer = self.user_info[0]['user'][
+                            'followed_by_viewer']
+                        requested_by_viewer = self.user_info[0]['user'][
+                            'requested_by_viewer']
+                        has_requested_viewer = self.user_info[0]['user'][
+                            'has_requested_viewer']
                         log_string = "Follower : %i" % (follower)
                         self.write_log(log_string)
                         log_string = "Following : %s" % (follows)
                         self.write_log(log_string)
                         log_string = "Media : %i" % (media)
                         self.write_log(log_string)
-                        if follower/follows > 2:
+                        if follower / follows > 2:
                             self.is_selebgram = True
                             self.is_fake_account = False
                             print('   >>>This is probably Selebgram account')
-                        elif follows/follower > 2:
+                        elif follows / follower > 2:
                             self.is_fake_account = True
                             self.is_selebgram = False
                             print('   >>>This is probably Fake account')
@@ -706,7 +766,7 @@ class InstaBot:
                             self.is_fake_account = False
                             print('   >>>This is a normal account')
 
-                        if follows/media < 10 and follower/media < 10:
+                        if follows / media < 10 and follower / media < 10:
                             self.is_active_user = True
                             print('   >>>This user is active')
                         else:
@@ -727,7 +787,7 @@ class InstaBot:
                         else:
                             self.is_following = False
                             print('   >>>You are NOT following this account')
-                        i+=1
+                        i += 1
 
                 except:
                     media_on_feed = []
@@ -738,7 +798,7 @@ class InstaBot:
                 return 0
 
             if self.is_selebgram is not False or self.is_fake_account is not False or self.is_active_user is not True or self.is_follower is not True:
-                print (current_user)
+                print(current_user)
                 self.unfollow(current_id)
                 try:
                     del self.media_on_feed[chooser]
@@ -746,10 +806,10 @@ class InstaBot:
                     self.media_on_feed = []
             self.media_on_feed = []
 
-    def get_media_id_recent_feed (self):
+    def get_media_id_recent_feed(self):
         if (self.login_status):
             now_time = datetime.datetime.now()
-            log_string = "%s : Get media id on recent feed"%(self.user_login)
+            log_string = "%s : Get media id on recent feed" % (self.user_login)
             self.write_log(log_string)
             if self.login_status == 1:
                 url_tag = 'https://www.instagram.com/#'
@@ -758,18 +818,22 @@ class InstaBot:
                     text = r.text
                     finder_text_start = ('<script type="text/javascript">'
                                          'window._sharedData = ')
-                    finder_text_start_len = len(finder_text_start)-1
+                    finder_text_start_len = len(finder_text_start) - 1
                     finder_text_end = ';</script>'
 
                     all_data_start = text.find(finder_text_start)
-                    all_data_end = text.find(finder_text_end, all_data_start + 1)
+                    all_data_end = text.find(finder_text_end,
+                                             all_data_start + 1)
                     json_str = text[(all_data_start + finder_text_start_len + 1) \
                                    : all_data_end]
                     all_data = json.loads(json_str)
-                    
-                    self.media_on_feed = list(all_data['entry_data']['FeedPage'][0]['graphql']['user']['edge_web_feed_timeline']['edges'])
-                    
-                    log_string="Media in recent feed = %i"%(len(self.media_on_feed))
+
+                    self.media_on_feed = list(
+                        all_data['entry_data']['FeedPage'][0]['graphql'][
+                            'user']['edge_web_feed_timeline']['edges'])
+
+                    log_string = "Media in recent feed = %i" % (
+                        len(self.media_on_feed))
                     self.write_log(log_string)
                 except:
                     self.media_on_feed = []
@@ -778,7 +842,6 @@ class InstaBot:
                     return 0
             else:
                 return 0
-
 
     def write_log(self, log_text):
         """ Write log by print() or logger """
@@ -793,9 +856,9 @@ class InstaBot:
             if self.log_file == 0:
                 self.log_file = 1
                 now_time = datetime.datetime.now()
-                self.log_full_path = '%s%s_%s.log' % (self.log_file_path,
-                                                      self.user_login,
-                                                      now_time.strftime("%d.%m.%Y_%H:%M"))
+                self.log_full_path = '%s%s_%s.log' % (
+                    self.log_file_path, self.user_login,
+                    now_time.strftime("%d.%m.%Y_%H:%M"))
                 formatter = logging.Formatter('%(asctime)s - %(name)s '
                                               '- %(message)s')
                 self.logger = logging.getLogger(self.user_login)
